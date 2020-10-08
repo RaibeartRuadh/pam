@@ -1,3 +1,4 @@
+
 Задание:
 1. Запретить всем пользователям, кроме группы admin логин в выходные (суббота и воскресенье), без учета праздников
 * дать конкретному пользователю права работать с докером
@@ -7,50 +8,108 @@
 
 Создадим группы:
 Пользователи - UUSERS
-Администратор - ADMINS
+Администратор - ADMIN
 
 $ sudo groupadd uusers
-$ sudo groupadd admins
+$ sudo groupadd admin
 
 Проверяем созданные группы:
 
-$ cat /etc/group | grep -P 'uusers|admins'
+$ cat /etc/group | grep -P 'uusers|admin'
 
 Добавляем тестовых пользователей в группы:
+$ sudo useradd -g uusers pupkin
+$ sudo useradd -g admin adminman
 
-$ sudo useradd -g uusers usman
-$ sudo useradd -g uusers usman2
-$ sudo useradd -g admins admiman
+Добавляем пароль для каждого через passwd
+$ sudo passwd pupkin
+$ sudo passwd adminman
 
-Проверяем пользователей
+В файл /etc/pam.d/sshd добавляем два модуля:
+pam_sepermit.so - это для ограничения доступа по группам пользователей
+pam_time.so  - это для ограничения доступа по времени
 
-$ cat /etc/passwd | grep -P 'usman|usman2|admiman'
+sudo nano /etc/pam.d/sshd
 
-Теперь добавляем в файл /etc/security/time.conf
-правило запрета доступа пользователей из группы uusers к системе на выходные, кроме пользователя из группы admins 
-(https://www.opennet.ru/base/dev/pam_linux.txt.html
-https://www.opennet.ru/man.shtml?topic=time.conf&category=5&russian=2#lbAD)
+account    required     pam_time.so
+account    required     pam_sepermit.so
 
-$ echo '*;*;usman|usman2|!admiman|;Wk0000-2400' | sudo tee --append /etc/security/time.conf
+Аналогичные записи в файл /etc/pam.d/login
+sudo nano /etc/pam.d/login
 
-Добавялем правило в /etc/pam.d/sshd
+account    required     pam_time.so
+account    required     pam_sepermit.so
 
-$ echo 'account required pam_time.so' | sudo tee --append /etc/pam.d/sshd
+Делаем запись в /etc/security/time.conf
+Где мы прописываем правила допуска пользователй по времени. 
+В нашем случае мы хотим проверить, что это работает. Поэтому записываем в таком формате:
 
-Теперь в выходные дни, доступ пользователям из группы uusers в систему запрещен.
+*;*;pupkin|!adminman;!Al0000-2400
+Соответсвтенно это правило запрещает вход через ssh или интерфейс пользователю pupkin
+проверяем правило через подключение к ssh
+
+В дальнейшем, это нужно поменять на, чтобы запретить вход в выходные
+*;*;pupkin|!adminman;Wk0000-2430
+
+Но, действительно, такой вариант работает только на конкретных пользователей, а не для групп, т.е. зная об это можно завести еще одного 
+
+пользователя и если он не будет в этом списке, то правило для него не отработает. это не секурно.
+Вариант 2. Добавляем способ ограничения для групп.
+В этом случае понадобится пакет pam_script
+
+Нам нужно добавить пользователя в группу, которой мы хотим разрешить вход. Эта группа уже была создана ранее и 
+туда добавлен пользоваетль adminman.
+
+Проверить можно командой
+$ cat /etc/group | grep adminman
+если пользователя нет, то добавить его в группу
+$ sudo usermod -aG admin adminman
+
+Выкачиваем пакет pam_script (можно подключить epel репозиторий, но можно и через установку rpm)
+wget https://download-ib01.fedoraproject.org/pub/epel/7/x86_64/Packages/p/pam_script-1.1.8-1.el7.x86_64.rpm
+Устанавливаем 
+sudo yum install pam_script-1.1.8-1.el7.x86_64.rpm -y
+
+В начало файла /etc/pam.d/sshd добавлем строку:
+$ sudo nano /etc/pam.d/sshd
+
+auth       required     pam_script.so
+
+Редактируем файл /etc/pam_script
+Заменяя его содержимое нашим скриптом, в котором:
+1. Мы проверяем, что пользователь из группы admin, если это так, то пропускаем
+2. Какой сейчас день недели. Если больше 5 (пятница), то не пропускаем
+
+#!/bin/bash
+
+if [[ `grep $PAM_USER /etc/group | grep 'admin'` ]]
+then
+exit 0
+fi
+if [[ `date +%u` > 5 ]]
+then
+exit 1
+fi
+
+Как проверить, что это работает, если сейчас не выходной, а понедельник? Поставить в /etc/pam_script значение date +%u` > 1
+И попробовать авторизоваться пользователем не из группы admin
 
 
 2. Возможность реатртовать конкретному пользователю контейнеры docker не от sudo
 
 Есть следующие варианты:
-Если пользователь один 
+А. Небезопасный  
 Выставить на директорию suid-бит +s  (https://ru.wikipedia.org/wiki/Chmod)
 
 $ sudo chmod ug+s /usr/bin/docker
 
 После чего можно полноценно управлять контейнерами без опции суперпользователя
 
-Если пользователей несколько, а доступ нужно организовать одному, то включаем этого пользователя в группу docker
+Б. Еще более опасный. Быть в группе пользователей docker
+Что это значит, это значит получить доступ к сокету демона Docker
+Проверим:
+ls -l /var/run/docker.sock
+Владелец сокета root группа docker
 
 Команда добавления в группу docker текущего пользователя
 $ sudo usermod -aG docker ${USER}
@@ -65,3 +124,9 @@ $ id -Gn admiman
 
 Авторизуемся пользователем admiman через $ su admiman   
 и проверяем возможность запуска контейнера docker
+
+Конечно это все небезопасные способы, так как помимо того, что мы попали в группу Docker и может запускать контейнеры, мы также!!!
+можем делать все, что может пользователь root с членством в группе docker.
+
+
+
