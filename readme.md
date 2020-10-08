@@ -5,7 +5,6 @@
 и возможность рестартить докер сервис
 
 Решение:
-
 Создадим группы:
 Пользователи - UUSERS
 Администратор - ADMIN
@@ -16,6 +15,8 @@ $ sudo groupadd admin
 Проверяем созданные группы:
 
 $ cat /etc/group | grep -P 'uusers|admin'
+
+Скрин 1.png
 
 Добавляем тестовых пользователей в группы:
 $ sudo useradd -g uusers pupkin
@@ -29,13 +30,13 @@ $ sudo passwd adminman
 pam_sepermit.so - это для ограничения доступа по группам пользователей
 pam_time.so  - это для ограничения доступа по времени
 
-sudo nano /etc/pam.d/sshd
+sudo nano /etc/pam.d/sshd   Скрин 2.png
 
 account    required     pam_time.so
 account    required     pam_sepermit.so
 
 Аналогичные записи в файл /etc/pam.d/login
-sudo nano /etc/pam.d/login
+sudo nano /etc/pam.d/login   Скрин 3.png
 
 account    required     pam_time.so
 account    required     pam_sepermit.so
@@ -49,7 +50,7 @@ account    required     pam_sepermit.so
 проверяем правило через подключение к ssh
 
 В дальнейшем, это нужно поменять на, чтобы запретить вход в выходные
-*;*;pupkin|!adminman;Wk0000-2430
+*;*;pupkin|!adminman;Wk0000-2400 Скрин 4.png
 
 Но, действительно, такой вариант работает только на конкретных пользователей, а не для групп, т.е. зная об это можно завести еще одного 
 
@@ -71,16 +72,16 @@ wget https://download-ib01.fedoraproject.org/pub/epel/7/x86_64/Packages/p/pam_sc
 sudo yum install pam_script-1.1.8-1.el7.x86_64.rpm -y
 
 В начало файла /etc/pam.d/sshd добавлем строку:
-$ sudo nano /etc/pam.d/sshd
+$ sudo nano /etc/pam.d/sshd  Скрин 5.png
 
 auth       required     pam_script.so
 
-Редактируем файл /etc/pam_script
+Редактируем файл /etc/pam_script  Скрин 6.png
 Заменяя его содержимое нашим скриптом, в котором:
 1. Мы проверяем, что пользователь из группы admin, если это так, то пропускаем
 2. Какой сейчас день недели. Если больше 5 (пятница), то не пропускаем
 
-#!/bin/bash
+#!/bin/bash  
 
 if [[ `grep $PAM_USER /etc/group | grep 'admin'` ]]
 then
@@ -94,7 +95,6 @@ fi
 Как проверить, что это работает, если сейчас не выходной, а понедельник? Поставить в /etc/pam_script значение date +%u` > 1
 И попробовать авторизоваться пользователем не из группы admin
 
-
 2. Возможность реатртовать конкретному пользователю контейнеры docker не от sudo
 
 Есть следующие варианты:
@@ -105,7 +105,7 @@ $ sudo chmod ug+s /usr/bin/docker
 
 После чего можно полноценно управлять контейнерами без опции суперпользователя
 
-Б. Еще более опасный. Быть в группе пользователей docker
+Б. Тоже небезопасный  Быть в группе пользователей docker
 Что это значит, это значит получить доступ к сокету демона Docker
 Проверим:
 ls -l /var/run/docker.sock
